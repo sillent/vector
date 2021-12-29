@@ -21,6 +21,15 @@ def human_bytes(b):
         s = -s
     return "%s%s" % (s, names[i])
 
+# Use Tukey's method to detect values that sit 1.5 times outside the IQR.
+def total_outliers(df):
+    q1 = df['value'].quantile(0.25)
+    q3 = df['value'].quantile(0.75)
+    iqr = q3 - q1
+    scaled_iqr = 1.5 * iqr
+
+    outside_range = lambda b: (b < (q1 - scaled_iqr)) or (b > (q3 + scaled_iqr))
+    return df['value'].apply(outside_range).sum()
 
 parser = argparse.ArgumentParser(description='t-test experiments with Welch method')
 parser.add_argument('--baseline-sha', type=str, help='the sha of the baseline experiment')
@@ -41,148 +50,156 @@ for f in capture_paths:
     captures.append(pd.read_csv(f))
 csv = pd.concat(captures)
 
-fetch_index_past_warmup = csv['fetch_index'] > args.warmup_seconds
-csv = csv[fetch_index_past_warmup]
-csv['value'] = csv['value'].div(args.vector_cpus)
+# Skip past any data collected before the warmup period elapsed.
+csv = csv.loc[csv.fetch_index > args.warmup_seconds]
 
-# Use Tukey's method to detect values that sit 1.5 times outside the IQR.
-def total_outliers(df):
-    q1 = df['value'].quantile(0.25)
-    q3 = df['value'].quantile(0.75)
-    iqr = q3 - q1
-    scaled_iqr = 1.5 * iqr
+# Extract cumulative bytes_written data. We're only interested in the last
+# collected value.
+cumulative_bytes = csv.loc[csv.query_id == 'cumulative_bytes_written']
+cumulative_bytes = cumulative_bytes.drop(columns=['unit', 'query_id', 'query', 'vector_id', 'time'])
+cumulative_bytes = cumulative_bytes.groupby(['experiment', 'variant']).tail(1)
+cumulative_bytes['value'] = cumulative_bytes['value'].apply(human_bytes)
 
-    outside_range = lambda b: (b < (q1 - scaled_iqr)) or (b > (q3 + scaled_iqr))
-    return df['value'].apply(outside_range).sum()
+# Remove 'throughput' data from the bulk collection, drop unwanted columns and
+# scale throughput down to per-core range. Vector's throughput concerns are
+# per-core.
+throughput = csv.loc[csv.query_id == 'throughput']
+throughput = throughput.drop(columns=['unit', 'query_id', 'query', 'vector_id', 'time'])
+throughput['value'] = throughput['value'].div(args.vector_cpus)
 
-ttest_results = []
-for exp in csv.experiment.unique():
-    experiment = csv[csv['experiment'] == exp]
+print(cumulative_bytes)
+#print(csv[csv.variant == 'baseline'].to_markdown(index=False, tablefmt='github'))
+#print(csv[csv.query_id == 'throughput'].to_markdown(index=False, tablefmt='github'))
 
-    baseline = experiment[experiment['variant'] == 'baseline']
-    comparison = experiment[experiment['variant'] == 'comparison']
-    baseline_mean = baseline['value'].mean()
-    baseline_stdev = baseline['value'].std()
-    comparison_mean = comparison['value'].mean()
-    comparison_stdev = comparison['value'].std()
-    diff =  comparison_mean - baseline_mean
-    percent_change = round(((comparison_mean - baseline_mean) / baseline_mean) * 100, 2)
 
-    baseline_outliers = total_outliers(baseline)
-    comparison_outliers = total_outliers(comparison)
+# ttest_results = []
+# for exp in csv.experiment.unique():
+#     experiment = csv[csv['experiment'] == exp]
 
-    # The t-test here is calculating whether the expected mean of our two
-    # distributions is equal, or, put another way, whether the samples we have
-    # here are from identical distributions. The higher the returned p-value by
-    # ttest_ind the more likely it is that the samples _do_ have the same
-    # expected mean.
-    #
-    # If the p-value is below our threshold then it is _unlikely_ that the two
-    # samples actually have the same mean -- are from the same distribution --
-    # and so there's some statistically interesting difference between the two
-    # samples. For our purposes here that implies that performance has changed.
-    res = scipy.stats.ttest_ind_from_stats(baseline_mean,
-                                           baseline_stdev,
-                                           len(baseline),
-                                           comparison_mean,
-                                           comparison_stdev,
-                                           len(comparison),
-                                           equal_var=False)
-    ttest_results.append({'experiment': exp,
-                          'Δ mean': diff.mean(),
-                          'Δ mean %': percent_change,
-                          'baseline mean': baseline_mean,
-                          'baseline stdev': baseline_stdev,
-                          'baseline outlier percentage': (baseline_outliers / len(baseline)) * 100,
-                          'comparison mean': comparison_mean,
-                          'comparison stdev': comparison_stdev,
-                          'comparison outlier percentage': (comparison_outliers / len(comparison)) * 100,
-                          't-statistic': res.statistic,
-                          'p-value': res.pvalue,
-                          'erratic': exp in erratic_soaks
-                          })
+#     baseline = experiment[experiment['variant'] == 'baseline']
+#     comparison = experiment[experiment['variant'] == 'comparison']
+#     baseline_mean = baseline['value'].mean()
+#     baseline_stdev = baseline['value'].std()
+#     comparison_mean = comparison['value'].mean()
+#     comparison_stdev = comparison['value'].std()
+#     diff =  comparison_mean - baseline_mean
+#     percent_change = round(((comparison_mean - baseline_mean) / baseline_mean) * 100, 2)
 
-ttest_results = pd.DataFrame.from_records(ttest_results)
+#     baseline_outliers = total_outliers(baseline)
+#     comparison_outliers = total_outliers(comparison)
 
-print(f'''
-# Soak Test Results
-Baseline: {args.baseline_sha}
-Comparison: {args.comparison_sha}
-Total Vector CPUs: {args.vector_cpus}
+#     # The t-test here is calculating whether the expected mean of our two
+#     # distributions is equal, or, put another way, whether the samples we have
+#     # here are from identical distributions. The higher the returned p-value by
+#     # ttest_ind the more likely it is that the samples _do_ have the same
+#     # expected mean.
+#     #
+#     # If the p-value is below our threshold then it is _unlikely_ that the two
+#     # samples actually have the same mean -- are from the same distribution --
+#     # and so there's some statistically interesting difference between the two
+#     # samples. For our purposes here that implies that performance has changed.
+#     res = scipy.stats.ttest_ind_from_stats(baseline_mean,
+#                                            baseline_stdev,
+#                                            len(baseline),
+#                                            comparison_mean,
+#                                            comparison_stdev,
+#                                            len(comparison),
+#                                            equal_var=False)
+#     ttest_results.append({'experiment': exp,
+#                           'Δ mean': diff.mean(),
+#                           'Δ mean %': percent_change,
+#                           'baseline mean': baseline_mean,
+#                           'baseline stdev': baseline_stdev,
+#                           'baseline outlier percentage': (baseline_outliers / len(baseline)) * 100,
+#                           'comparison mean': comparison_mean,
+#                           'comparison stdev': comparison_stdev,
+#                           'comparison outlier percentage': (comparison_outliers / len(comparison)) * 100,
+#                           't-statistic': res.statistic,
+#                           'p-value': res.pvalue,
+#                           'erratic': exp in erratic_soaks
+#                           })
 
-<details>
-<summary>Explanation</summary>
-<p>
-A soak test is an integrated performance test for vector in a repeatable rig, with varying configuration for vector.
-What follows is a statistical summary of a brief vector run for each configuration across SHAs given above.
-The goal of these tests are to determine, quickly, if vector performance is changed and to what degree by a pull request.
-Test units below are bytes/second/CPU, except for "skewness". The
-further "skewness" is from 0.0 the more indication that vector lacks
-consistency in behavior, making predictions of fitness in the field challenging.
-</p>
+# ttest_results = pd.DataFrame.from_records(ttest_results)
 
-<p>
-The abbreviated table below, if present, lists those experiments that have experienced a
-statistically significant change in their throughput performance between
-baseline and comparision SHAs, with {(1.0 - args.p_value) * 100}% confidence. Negative values mean
-that baseline is faster, positive comparison. Results that do not exhibit more than a ±{args.mean_drift_percentage}%
-change in mean throughput are discarded. The abbreviated table will be omitted if no statistically
-interesting changes are observed.
-</p>
-</details>
-''')
+# print(f'''
+# # Soak Test Results
+# Baseline: {args.baseline_sha}
+# Comparison: {args.comparison_sha}
+# Total Vector CPUs: {args.vector_cpus}
 
-def confidence(p):
-    c = (1.0 - p) * 100
-    return "{confidence:.{digits}f}%".format(confidence=c, digits=2)
+# <details>
+# <summary>Explanation</summary>
+# <p>
+# A soak test is an integrated performance test for vector in a repeatable rig, with varying configuration for vector.
+# What follows is a statistical summary of a brief vector run for each configuration across SHAs given above.
+# The goal of these tests are to determine, quickly, if vector performance is changed and to what degree by a pull request.
+# Test units below are bytes/second/CPU, except for "skewness". The
+# further "skewness" is from 0.0 the more indication that vector lacks
+# consistency in behavior, making predictions of fitness in the field challenging.
+# </p>
 
-p_value_violation = ttest_results['p-value'] < args.p_value
-changes = ttest_results[p_value_violation].copy(deep=True)
-changes['confidence'] = changes['p-value'].apply(confidence)
-changes = changes.drop(labels=['t-statistic', 'p-value', 'baseline mean',
-                               'baseline stdev', 'comparison mean',
-                               'baseline outlier percentage',
-                               'comparison outlier percentage',
-                               'comparison stdev', 'erratic'], axis=1)
-changes = changes.loc[~changes['experiment'].isin(erratic_soaks)]
-changes = changes[changes['Δ mean %'].abs() > args.mean_drift_percentage].sort_values('Δ mean', ascending=False)
-changes['Δ mean'] = changes['Δ mean'].apply(human_bytes)
-if len(changes) > 0:
-    print(changes.to_markdown(index=False, tablefmt='github'))
-else:
-    print("No statistically interesting changes with confidence {}.".format(confidence(args.p_value)))
+# <p>
+# The abbreviated table below, if present, lists those experiments that have experienced a
+# statistically significant change in their throughput performance between
+# baseline and comparision SHAs, with {(1.0 - args.p_value) * 100}% confidence. Negative values mean
+# that baseline is faster, positive comparison. Results that do not exhibit more than a ±{args.mean_drift_percentage}%
+# change in mean throughput are discarded. The abbreviated table will be omitted if no statistically
+# interesting changes are observed.
+# </p>
+# </details>
+# ''')
 
-print()
-print("<details>")
-print("<summary>Fine details of change detection per experiment.</summary>")
-print()
-ttest_results = ttest_results.sort_values('Δ mean', ascending=False)
-ttest_results['Δ mean'] = ttest_results['Δ mean'].apply(human_bytes)
-ttest_results['baseline mean'] = ttest_results['baseline mean'].apply(human_bytes)
-ttest_results['baseline stdev'] = ttest_results['baseline stdev'].apply(human_bytes)
-ttest_results['comparison mean'] = ttest_results['comparison mean'].apply(human_bytes)
-ttest_results['comparison stdev'] = ttest_results['comparison stdev'].apply(human_bytes)
-print(ttest_results.to_markdown(index=False, tablefmt='github'))
-print("</details>")
+# def confidence(p):
+#     c = (1.0 - p) * 100
+#     return "{confidence:.{digits}f}%".format(confidence=c, digits=2)
 
-print("<details>")
-print("<summary>Fine details of each soak run.</summary>")
-print()
-describe = csv.groupby(['experiment', 'variant'])['value'].describe(percentiles=[0.90, 0.95, 0.99])
-describe = describe.rename(columns={'50%': 'average', '95%': 'p95', '90%': 'p90', '99%': 'p99'})
-describe = describe.sort_values('mean', ascending=False)
-describe['skewness'] = csv.groupby(['experiment', 'variant'])['value'].skew()
-describe['mean'] = describe['mean'].apply(human_bytes)
-describe['std'] = describe['std'].apply(human_bytes)
-describe['min'] = describe['min'].apply(human_bytes)
-describe['average'] = describe['average'].apply(human_bytes)
-describe['p90'] = describe['p90'].apply(human_bytes)
-describe['p95'] = describe['p95'].apply(human_bytes)
-describe['p99'] = describe['p99'].apply(human_bytes)
-describe['max'] = describe['max'].apply(human_bytes)
-print(describe.to_markdown(index=True,
-                           tablefmt='github',
-                           headers=['(experiment, variant)', 'total samples',
-                                    'mean', 'std', 'min', 'average',
-                                    'p90', 'p95', 'p99', 'max', 'skewness']))
-print("</details>")
+# p_value_violation = ttest_results['p-value'] < args.p_value
+# changes = ttest_results[p_value_violation].copy(deep=True)
+# changes['confidence'] = changes['p-value'].apply(confidence)
+# changes = changes.drop(labels=['t-statistic', 'p-value', 'baseline mean',
+#                                'baseline stdev', 'comparison mean',
+#                                'baseline outlier percentage',
+#                                'comparison outlier percentage',
+#                                'comparison stdev', 'erratic'], axis=1)
+# changes = changes.loc[~changes['experiment'].isin(erratic_soaks)]
+# changes = changes[changes['Δ mean %'].abs() > args.mean_drift_percentage].sort_values('Δ mean', ascending=False)
+# changes['Δ mean'] = changes['Δ mean'].apply(human_bytes)
+# if len(changes) > 0:
+#     print(changes.to_markdown(index=False, tablefmt='github'))
+# else:
+#     print("No statistically interesting changes with confidence {}.".format(confidence(args.p_value)))
+
+# print()
+# print("<details>")
+# print("<summary>Fine details of change detection per experiment.</summary>")
+# print()
+# ttest_results = ttest_results.sort_values('Δ mean', ascending=False)
+# ttest_results['Δ mean'] = ttest_results['Δ mean'].apply(human_bytes)
+# ttest_results['baseline mean'] = ttest_results['baseline mean'].apply(human_bytes)
+# ttest_results['baseline stdev'] = ttest_results['baseline stdev'].apply(human_bytes)
+# ttest_results['comparison mean'] = ttest_results['comparison mean'].apply(human_bytes)
+# ttest_results['comparison stdev'] = ttest_results['comparison stdev'].apply(human_bytes)
+# print(ttest_results.to_markdown(index=False, tablefmt='github'))
+# print("</details>")
+
+# print("<details>")
+# print("<summary>Fine details of each soak run.</summary>")
+# print()
+# describe = csv.groupby(['experiment', 'variant'])['value'].describe(percentiles=[0.90, 0.95, 0.99])
+# describe = describe.rename(columns={'50%': 'average', '95%': 'p95', '90%': 'p90', '99%': 'p99'})
+# describe = describe.sort_values('mean', ascending=False)
+# describe['skewness'] = csv.groupby(['experiment', 'variant'])['value'].skew()
+# describe['mean'] = describe['mean'].apply(human_bytes)
+# describe['std'] = describe['std'].apply(human_bytes)
+# describe['min'] = describe['min'].apply(human_bytes)
+# describe['average'] = describe['average'].apply(human_bytes)
+# describe['p90'] = describe['p90'].apply(human_bytes)
+# describe['p95'] = describe['p95'].apply(human_bytes)
+# describe['p99'] = describe['p99'].apply(human_bytes)
+# describe['max'] = describe['max'].apply(human_bytes)
+# print(describe.to_markdown(index=True,
+#                            tablefmt='github',
+#                            headers=['(experiment, variant)', 'total samples',
+#                                     'mean', 'std', 'min', 'average',
+#                                     'p90', 'p95', 'p99', 'max', 'skewness']))
+# print("</details>")
