@@ -98,7 +98,7 @@ inventory::submit! {
     SinkDescription::new::<ElasticSearchConfig>("elasticsearch")
 }
 
-impl_generate_config_from_default!(ElasticSearchConfig);
+// impl_generate_config_from_default!(ElasticSearchConfig);
 
 #[derive(Debug, Clone)]
 pub enum ElasticSearchCommonMode {

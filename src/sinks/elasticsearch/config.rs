@@ -35,13 +35,35 @@ use crate::{
     transforms::metric_to_log::MetricToLogConfig,
 };
 
+impl GenerateConfig for ElasticSearchConfig {
+    fn generate_config() -> toml::Value {
+        toml::Value::try_from(Self {
+            endpoint: Template::try_from("http://localhost:9200").unwrap(),
+            doc_type: None,
+            suppress_type_name: false,
+            id_key: None,
+            pipeline: None,
+            mode: ElasticSearchMode::Bulk,
+            compression: Compression::None,
+            encoding: ElasticSearchEncoder::default(),
+            batch: BatchConfig::default(),
+            request: RequestConfig::default(),
+            auth: None,
+            query: None,
+            aws: None,
+            tls: None,
+            bulk: None,
+            data_stream: None,
+            metrics: None,
+        })}
+}
 /// The field name for the timestamp required by data stream mode
 pub const DATA_STREAM_TIMESTAMP_KEY: &str = "@timestamp";
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 #[serde(deny_unknown_fields)]
 pub struct ElasticSearchConfig {
-    pub endpoint: String,
+    pub endpoint: Template,
 
     pub doc_type: Option<String>,
     #[serde(default)]
