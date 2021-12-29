@@ -10,7 +10,7 @@ use tower::ServiceBuilder;
 
 use crate::{
     aws::rusoto::RegionOrEndpoint,
-    config::{log_schema, DataType, SinkConfig, SinkContext},
+    config::{log_schema, DataType, SinkConfig, SinkContext, GenerateConfig},
     event::{EventRef, LogEvent, Value},
     http::HttpClient,
     internal_events::TemplateRenderingFailed,
