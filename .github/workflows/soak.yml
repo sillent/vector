@@ -444,7 +444,7 @@ jobs:
           path: /tmp/${{ github.event.number }}-${{ github.run_attempt }}-analysis
 
       - name: Post Results To PR
-        uses: peter-evans/create-or-update-comment@v1
+        uses: peter-evans/create-or-update-comment@v2
         with:
           issue-number: ${{ needs.compute-soak-meta.outputs.pr-number }}
           edit-mode: replace
