@@ -299,7 +299,7 @@ jobs:
         uses: actions/checkout@v2.4.0
 
       - name: Download captures artifact
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v3
         with:
           path: ${{ github.event.number }}-${{ github.run_attempt }}-captures/
 
@@ -377,7 +377,7 @@ jobs:
         uses: actions/checkout@v2.4.0
 
       - name: Download captures artifact
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v3
         with:
           path: ${{ github.event.number }}-${{ github.run_attempt }}-captures/
 
@@ -418,7 +418,7 @@ jobs:
         uses: actions/checkout@v2.4.0
 
       - name: Download captures artifact
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v3
         with:
           path: ${{ github.event.number }}-${{ github.run_attempt }}-captures/
 
@@ -474,7 +474,7 @@ jobs:
         uses: actions/checkout@v2.4.0
 
       - name: Download captures artifact
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v3
         with:
           path: ${{ github.event.number }}-${{ github.run_attempt }}-captures/
 
@@ -513,7 +513,7 @@ jobs:
         uses: actions/checkout@v2.4.0
 
       - name: Download captures artifact
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v3
         with:
           path: ${{ github.event.number }}-${{ github.run_attempt }}-captures/
 
