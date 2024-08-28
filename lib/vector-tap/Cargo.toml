@@ -9,7 +9,7 @@ license = "MPL-2.0"
 [dependencies]
 colored = { version = "2.1.0", default-features = false }
 serde_yaml = { version = "0.9.34", default-features = false }
-snafu = { version = "0.7.5", default-features = false }
+snafu = { version = "0.8.0", default-features = false }
 tokio = { version = "1.39.3", default-features = false, features = ["time"] }
 tokio-stream = { version = "0.1.15", default-features = false, features = ["sync"] }
 tokio-tungstenite = { version = "0.20.1", default-features = false }
